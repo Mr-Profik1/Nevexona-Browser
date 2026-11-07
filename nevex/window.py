@@ -203,6 +203,7 @@ class BrowserWindow(Gtk.ApplicationWindow):
         self._current: Tab | None = None
         self._ctx = None
         self._restoring = False
+        self._shut_down = False
         self._save_source = 0
         self._hibernate_source = 0
         self.closed: list = []
@@ -577,7 +578,7 @@ class BrowserWindow(Gtk.ApplicationWindow):
 
     # ---- session -----------------------------------------------------------------------------------------------------
     def schedule_session_save(self) -> None:
-        if self.private or self._restoring or self._save_source or self.app.session_owner is not self:
+        if self.private or self._restoring or self._shut_down or self._save_source or self.app.session_owner is not self:
             return
         self._save_source = GLib.timeout_add(1500, self._save_session_cb)
 
@@ -608,13 +609,15 @@ class BrowserWindow(Gtk.ApplicationWindow):
         self._activate_tab(self.tabs[page])
 
     # ---- shutdown --------------------------------------------------------------------------------------------------------
-    def _on_delete(self, _w, _ev) -> bool:
-        if self._save_source:
-            GLib.source_remove(self._save_source)
-            self._save_source = 0
-        if self._hibernate_source:
-            GLib.source_remove(self._hibernate_source)
-            self._hibernate_source = 0
+    def shutdown(self) -> None:
+        """Save the session and free all web views. Safe to call more than once."""
+        if self._shut_down:
+            return
+        self._shut_down = True
+        for attr in ("_save_source", "_hibernate_source"):
+            if getattr(self, attr):
+                GLib.source_remove(getattr(self, attr))
+                setattr(self, attr, 0)
         self.save_session()
         self.app.window_closing(self)
         self.set_sidebar_visible(False)
@@ -622,4 +625,7 @@ class BrowserWindow(Gtk.ApplicationWindow):
             tab.destroy()
         self.tabs.clear()
         self._current = None
+
+    def _on_delete(self, _w, _ev) -> bool:
+        self.shutdown()
         return False

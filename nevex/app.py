@@ -115,9 +115,12 @@ class NevexApp(Gtk.Application):
             )
 
     def quit_all(self) -> None:
+        # Gtk.Window.close() is asynchronous, so shut windows down explicitly:
+        # the session must be written before the main loop stops.
         for w in list(self.get_windows()):
             if isinstance(w, BrowserWindow):
-                w.close()  # runs delete-event: saves session, frees web views
+                w.shutdown()
+                w.destroy()
         self.quit()
 
     def settings_changed(self) -> None:

@@ -81,6 +81,12 @@ def app(tmp_path_factory):
     a.do_shutdown()
 
 
+def close_window(win):
+    """Gtk.Window.close() is asynchronous; wait until the delete-event has been handled."""
+    close_window(win)
+    assert pump(lambda: win.tabs == {}), "window did not shut down"
+
+
 def title_is(tab, text):
     return lambda: tab.webview is not None and tab.webview.get_title() == text
 
@@ -90,14 +96,14 @@ def test_ai_is_off_by_default(app):
     assert app.settings.get("ai_enabled") is False
     assert not win.b_ai.get_visible()
     assert win.sidebar is None
-    win.close()
+    close_window(win)
 
 
 def test_start_page_renders(app):
     win = app.open_window()
     tab = win.add_tab(activate=True)
     assert pump(title_is(tab, "NEVEX AI"))
-    win.close()
+    close_window(win)
 
 
 def test_navigation_back_forward_reload(app, base):
@@ -113,7 +119,7 @@ def test_navigation_back_forward_reload(app, base):
     assert pump(title_is(tab, "Page Two"))
     win.reload_or_stop()
     assert pump(lambda: not tab.loading and tab.webview.get_title() == "Page Two")
-    win.close()
+    close_window(win)
 
 
 def test_address_bar_search_uses_yandex(app):
@@ -132,7 +138,7 @@ def test_tabs_open_close_and_lazy_restore(app, base):
     assert len(win.tabs) == 2
     win.reopen_tab()
     assert len(win.tabs) == 3
-    win.close()
+    close_window(win)
 
     win2 = app.open_window()
     win2.restore_tabs([{"url": base + "/", "title": ""}, {"url": base + "/two", "title": ""},
@@ -142,7 +148,7 @@ def test_tabs_open_close_and_lazy_restore(app, base):
     assert win2.current_tab() is live[0]
     win2.notebook.set_current_page(2)
     assert pump(lambda: win2.current_tab().webview is not None)
-    win2.close()
+    close_window(win2)
 
 
 def test_bookmarks_and_history(app, base):
@@ -154,7 +160,7 @@ def test_bookmarks_and_history(app, base):
     assert app.bookmarks.contains(base + "/")
     win.toggle_bookmark()
     assert not app.bookmarks.contains(base + "/")
-    win.close()
+    close_window(win)
 
 
 def test_private_window_records_no_history(app, base):
@@ -165,14 +171,19 @@ def test_private_window_records_no_history(app, base):
     time.sleep(0.3)
     pump(lambda: False, 0.3)
     assert app.history.recent() == []
-    win.close()
+    close_window(win)
 
 
 def test_error_page_for_unreachable_host(app):
     win = app.open_window()
     tab = win.add_tab("http://127.0.0.1:1/", activate=True)
-    assert pump(title_is(tab, "Cannot open page"))
-    win.close()
+    events = []
+    tab.webview.connect("load-failed", lambda wv, ev, uri, err: events.append(("failed", err.domain, err.code, err.message)))
+    tab.webview.connect("load-changed", lambda wv, ev: events.append(("changed", ev.value_nick)))
+    ok = pump(title_is(tab, "Cannot open page"))
+    assert ok, "title=%r uri=%r loading=%r is_start=%r events=%r" % (
+        tab.webview.get_title(), tab.webview.get_uri(), tab.loading, tab.is_start, events)
+    close_window(win)
 
 
 def test_download_saved_safely(app, base):
@@ -187,7 +198,7 @@ def test_download_saved_safely(app, base):
     assert os.path.dirname(item.dest) == dl_dir  # path traversal in filename was neutralised
     with open(item.dest, "rb") as f:
         assert f.read() == b"hello download"
-    win.close()
+    close_window(win)
 
 
 def test_ai_sidebar_only_created_on_demand(app):
@@ -199,7 +210,7 @@ def test_ai_sidebar_only_created_on_demand(app):
     win.set_sidebar_visible(False)
     assert win.sidebar is None
     app.settings.set("ai_enabled", False)
-    win.close()
+    close_window(win)
 
 
 def test_shutdown_saves_session_and_frees_views(app, base):
@@ -208,9 +219,20 @@ def test_shutdown_saves_session_and_frees_views(app, base):
     win.add_tab(base + "/", activate=True)
     win.add_tab(base + "/two", activate=True)
     assert pump(lambda: win.current_tab().webview.get_title() == "Page Two")
-    win.close()
+    close_window(win)
     with open(app.session.path) as f:
         data = json.load(f)
     assert [t["url"] for t in data["tabs"]] == [base + "/", base + "/two"]
     assert data["active"] == 1
     assert win.tabs == {}
+
+
+def test_quit_all_writes_session_immediately(app, base):
+    """Ctrl+Q path: the session must be saved before the main loop stops (runs last)."""
+    win = app.open_window()
+    app.session_owner = win
+    win.add_tab(base + "/two", activate=True)
+    app.quit_all()  # no main-loop iteration in between
+    with open(app.session.path) as f:
+        data = json.load(f)
+    assert [t["url"] for t in data["tabs"]][-1] == base + "/two"
