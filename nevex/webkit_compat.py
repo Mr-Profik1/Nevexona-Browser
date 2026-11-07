@@ -4,6 +4,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 
+from gi.repository import Gdk, Gtk  # noqa: E402,F401  (re-exported for the rest of the app)
+
 WebKit2 = None
 WEBKIT_API = None
 for _v in ("4.1", "4.0"):
