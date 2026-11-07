@@ -1,0 +1,12 @@
+# System packages needed to RUN NEVEX AI (Linux Mint 20/21/22, Ubuntu 20.04+, Debian 11+)
+# NEVEX AI has no pip dependencies; everything below comes from apt.
+python3
+python3-gi
+gir1.2-gtk-3.0
+gir1.2-webkit2-4.1      # Mint 21/22, Ubuntu 22.04+, Debian 12   (use gir1.2-webkit2-4.0 on Mint 20 / Ubuntu 20.04)
+librsvg2-common         # draws the symbolic toolbar icons
+
+# Extra packages only for building / testing
+dpkg-dev                # build.sh (dpkg-deb)
+xvfb                    # headless GUI tests and memory measurement
+python3-pytest          # tests

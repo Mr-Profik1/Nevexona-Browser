@@ -1,0 +1,85 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    env:
+      # Software rendering under the virtual X server used on CI
+      WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      GDK_BACKEND: x11
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 librsvg2-common \
+            xvfb python3-pytest dpkg-dev fonts-dejavu-core
+
+      - name: Byte-compile
+        run: /usr/bin/python3 -m compileall -q nevex tests tools
+
+      - name: Unit tests (no GUI)
+        run: /usr/bin/python3 -m pytest -q --ignore=tests/test_gui_smoke.py
+
+      - name: GUI smoke tests (real WebKitGTK on Xvfb)
+        run: xvfb-run -a /usr/bin/python3 -m pytest -v tests/test_gui_smoke.py
+
+      - name: Measure memory
+        run: |
+          xvfb-run -a /usr/bin/python3 tools/measure_memory.py --json memory-${{ matrix.os }}.json | tee memory-${{ matrix.os }}.md
+          { echo "### Memory (${{ matrix.os }})"; sed -n '/^| Scenario/,$p' memory-${{ matrix.os }}.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memory-${{ matrix.os }}
+          path: memory-${{ matrix.os }}.*
+
+  package:
+    name: Debian package
+    needs: test
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .deb
+        run: ./build.sh
+
+      - name: Install the .deb in a clean state and check it starts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./dist/*.deb
+          nevex-browser --version
+          test -f /usr/share/applications/nevex-browser.desktop
+          sudo apt-get remove -y nevex-browser
+          test ! -e /usr/bin/nevex-browser
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nevex-browser-deb
+          path: dist/*.deb
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.deb --generate-notes --title "NEVEX AI $GITHUB_REF_NAME"
