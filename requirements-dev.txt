@@ -1,0 +1,2 @@
+# Only needed to run the test suite (NEVEX AI itself has no pip dependencies)
+pytest>=7

@@ -1,0 +1,11 @@
+#!/usr/bin/python3
+"""Run NEVEX AI from a source checkout (the .deb installs the package system-wide)."""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+sys.path.insert(0, "/usr/lib/nevex-browser")  # location used by install.sh/.deb
+
+from nevex.app import main  # noqa: E402
+
+sys.exit(main())
